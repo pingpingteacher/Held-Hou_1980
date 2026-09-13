@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<title>Held-Hou Hadley Cell Model — θE slope interactive</title>
+<style>
+  body {
+    font-family: -apple-system, "Segoe UI", "Noto Sans TC", sans-serif;
+    max-width: 720px;
+    margin: 40px auto;
+    padding: 0 20px;
+    color: #1a1a1a;
+    background: #fff;
+  }
+  h1 { font-size: 20px; font-weight: 600; margin-bottom: 4px; }
+  p.sub { color: #666; font-size: 14px; margin-top: 0; margin-bottom: 24px; }
+  .controls { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+  .controls label { font-size: 14px; color: #444; white-space: nowrap; }
+  .controls input[type=range] { flex: 1; }
+  .controls span { font-size: 14px; font-weight: 600; min-width: 56px; text-align: right; }
+  .stats { display: flex; gap: 24px; margin: 8px 0 20px; font-size: 13px; color: #555; }
+  .stats b { color: #111; font-weight: 600; }
+  svg { display: block; width: 100%; border: 1px solid #eee; border-radius: 6px; }
+  .legend { display: flex; gap: 20px; margin-top: 10px; font-size: 12px; color: #555; }
+  .legend span { display: flex; align-items: center; gap: 5px; }
+  .swatch { width: 16px; height: 2px; display: inline-block; }
+  footer { margin-top: 28px; font-size: 12px; color: #999; }
+</style>
+</head>
+<body>
+
+<h1>Held &amp; Hou (1980) 穩態 Hadley cell 模型</h1>
+<p class="sub">拖動滑桿改變赤道—極地輻射平衡溫度梯度 Δθ，觀察 θ<sub>E</sub> 斜率、θ<sub>M</sub> 解，以及 Hadley cell 邊界 ϑ<sub>H</sub> 如何跟著變化。</p>
+
+<div class="controls">
+  <label>Δθ (equator&ndash;pole gradient)</label>
+  <input type="range" id="dtheta" min="20" max="90" step="1" value="50" />
+  <span id="dtheta-out">50 K</span>
+</div>
+<div class="stats">
+  <span>Hadley cell 邊界 ϑ<sub>H</sub> = <b id="thetaH-out">&mdash;</b></span>
+</div>
+
+<svg id="plot" viewBox="0 0 640 380"></svg>
+
+<div class="legend">
+  <span><span class="swatch" style="background:#378ADD;border-top:2px dashed #378ADD;height:0;"></span>θ<sub>E</sub>（輻射平衡溫度）</span>
+  <span><span class="swatch" style="background:#D85A30;"></span>θ<sub>M</sub>（角動量守恆解）</span>
+</div>
+
+<footer>公式對應 Vallis, <i>Atmospheric and Oceanic Fluid Dynamics</i>, (14.12)、(14.15b)、(14.19)。參數：θ₀=300K，Ω=7.272×10⁻⁵ s⁻¹，g=9.81 m/s²，H=10 km，a=6.371×10⁶ m。</footer>
+
+<script>
+const theta0 = 300, Omega = 7.272e-5, g = 9.81, H = 10000, a = 6.371e6;
+const slider = document.getElementById('dtheta');
+const out = document.getElementById('dtheta-out');
+const thetaHOut = document.getElementById('thetaH-out');
+const svg = document.getElementById('plot');
+
+function render() {
+  const dtheta = parseFloat(slider.value);
+  out.textContent = dtheta.toFixed(0) + ' K';
+  const thetaE0 = theta0 + dtheta / 3;
+  const YH = Math.sqrt(5 * dtheta * g * H / (3 * Omega * Omega * theta0));
+  const latH = (YH / a) * (180 / Math.PI);
+  const theta0val = thetaE0 - (5 * dtheta * dtheta * g * H) / (18 * a * a * Omega * Omega * theta0);
+  thetaHOut.textContent = latH.toFixed(1) + '°';
+
+  function thetaE(y) { return thetaE0 - dtheta * (y / a) * (y / a); }
+  function thetaM(y) {
+    if (y <= YH) return theta0val - theta0 * Omega * Omega * Math.pow(y, 4) / (2 * g * H * a * a);
+    return thetaE(y);
+  }
+
+  const latMax = 30;
+  const n = 120;
+  const ptsE = [], ptsM = [];
+  let tmin = Infinity, tmax = -Infinity;
+  for (let i = 0; i <= n; i++) {
+    const lat = latMax * i / n;
+    const y = a * lat * Math.PI / 180;
+    const tE = thetaE(y) - 273;
+    const tM = thetaM(y) - 273;
+    ptsE.push([lat, tE]);
+    ptsM.push([lat, tM]);
+    tmin = Math.min(tmin, tE, tM);
+    tmax = Math.max(tmax, tE, tM);
+  }
+  tmin -= 1; tmax += 1;
+
+  const pad = { l: 46, r: 16, t: 14, b: 34 };
+  const w = 640, h = 380;
+  const plotW = w - pad.l - pad.r, plotH = h - pad.t - pad.b;
+  const xScale = (lat) => pad.l + (lat / latMax) * plotW;
+  const yScale = (t) => pad.t + plotH - ((t - tmin) / (tmax - tmin)) * plotH;
+
+  const gridColor = '#e1e0d9';
+  const axisColor = '#c3c2b7';
+  const tickColor = '#898781';
+
+  let s = '';
+  const yTickCount = 5;
+  for (let i = 0; i <= yTickCount; i++) {
+    const t = tmin + (tmax - tmin) * i / yTickCount;
+    const yy = yScale(t);
+    s += '<line x1="' + pad.l + '" y1="' + yy + '" x2="' + (w - pad.r) + '" y2="' + yy + '" stroke="' + gridColor + '" stroke-width="1"/>';
+    s += '<text x="' + (pad.l - 8) + '" y="' + (yy + 4) + '" text-anchor="end" font-size="11" fill="' + tickColor + '">' + t.toFixed(0) + '</text>';
+  }
+  const xTicks = [0, 5, 10, 15, 20, 25, 30];
+  for (const lt of xTicks) {
+    const xx = xScale(lt);
+    s += '<text x="' + xx + '" y="' + (h - pad.b + 18) + '" text-anchor="middle" font-size="11" fill="' + tickColor + '">' + lt + '</text>';
+  }
+  s += '<text x="' + (pad.l - 34) + '" y="' + (pad.t + plotH / 2) + '" text-anchor="middle" font-size="12" fill="' + tickColor + '" transform="rotate(-90 ' + (pad.l - 34) + ' ' + (pad.t + plotH / 2) + ')">Temperature (°C-scale)</text>';
+  s += '<text x="' + (pad.l + plotW / 2) + '" y="' + (h - 4) + '" text-anchor="middle" font-size="12" fill="' + tickColor + '">Latitude</text>';
+  s += '<line x1="' + pad.l + '" y1="' + (pad.t + plotH) + '" x2="' + (w - pad.r) + '" y2="' + (pad.t + plotH) + '" stroke="' + axisColor + '" stroke-width="1"/>';
+  s += '<line x1="' + pad.l + '" y1="' + pad.t + '" x2="' + pad.l + '" y2="' + (pad.t + plotH) + '" stroke="' + axisColor + '" stroke-width="1"/>';
+
+  const shadeFill = 'rgba(55,138,221,0.14)';
+  const nShade = 60;
+  let shadeE = '', shadeM = '';
+  for (let i = 0; i <= nShade; i++) {
+    const lat = latH * i / nShade;
+    const y = a * lat * Math.PI / 180;
+    shadeE += xScale(lat) + ',' + yScale(thetaE(y) - 273) + ' ';
+  }
+  for (let i = nShade; i >= 0; i--) {
+    const lat = latH * i / nShade;
+    const y = a * lat * Math.PI / 180;
+    shadeM += xScale(lat) + ',' + yScale(thetaM(y) - 273) + ' ';
+  }
+  s += '<polygon points="' + shadeE + shadeM + '" fill="' + shadeFill + '" />';
+
+  s += '<line x1="' + xScale(latH) + '" y1="' + pad.t + '" x2="' + xScale(latH) + '" y2="' + (pad.t + plotH) + '" stroke="' + axisColor + '" stroke-width="1" stroke-dasharray="3,3"/>';
+  s += '<text x="' + xScale(latH) + '" y="' + (pad.t + plotH + 18) + '" text-anchor="middle" font-size="11" fill="#111" font-weight="600">' + latH.toFixed(1) + '°</text>';
+
+  const pathE = ptsE.map((p, i) => (i === 0 ? 'M' : 'L') + xScale(p[0]) + ' ' + yScale(p[1])).join(' ');
+  const pathM = ptsM.map((p, i) => (i === 0 ? 'M' : 'L') + xScale(p[0]) + ' ' + yScale(p[1])).join(' ');
+  s += '<path d="' + pathE + '" fill="none" stroke="#378ADD" stroke-width="2" stroke-dasharray="6,4"/>';
+  s += '<path d="' + pathM + '" fill="none" stroke="#D85A30" stroke-width="2"/>';
+
+  svg.innerHTML = s;
+}
+
+slider.addEventListener('input', render);
+render();
+</script>
+
+</body>
+</html>
